@@ -1,0 +1,34 @@
+# ADHD 5-fold image-only (3DSC-TF)
+# Run:
+# CUDA_VISIBLE_DEVICES=3 python train_kfold_optuna_unified.py \
+#   --dataset adhd --mode image_only \
+#   --config configs/adhd_image_only_3dsctf.yaml --n_trials 30
+
+seed: 42
+device: cuda
+data_root: ./data
+adhd_data_dir: ./data/adhd
+n_rois: 90
+batch_size: 16
+image_shape: [96, 96, 96]
+
+use_image_branch: true
+image_encoder: 3dsctf
+image_feat_dim: 256
+image_encoder_kwargs:
+  img_size: 96
+  patch_size: 32
+  embed_dim: 96
+  depth: 4
+  num_heads: 8
+  mlp_ratio: 2.0
+
+use_roi_branch: false
+roi_encoder: roi_vector
+roi_feat_dim: 256
+fusion: concat
+num_classes: 2
+dropout: 0.2
+epochs: 100
+lr: 0.0001
+weight_decay: 0.05

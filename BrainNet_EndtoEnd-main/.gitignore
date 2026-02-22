@@ -1,0 +1,6 @@
+__pycache__/
+checkpoints/
+data/graphconstructionedge/
+data/fMRIROItimeseries/logs/
+logs_v1/
+result_*.txt

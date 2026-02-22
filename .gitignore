@@ -11,3 +11,11 @@ data/
 .venv/
 venv/
 *.db
+checkpoints/
+logs*/
+logs_v2*/
+logs_smoke/
+logs_smoke_gpu1/
+BrainNet_EndtoEnd-main/__pycache__/
+BrainNet_EndtoEnd-main/*.log
+BrainNet_EndtoEnd-main/result_*.txt

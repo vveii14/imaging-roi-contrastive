@@ -1,14 +1,18 @@
-# ADHD 5-fold fusion: 3D-SCTF image + NeuroGraph ROI, contrastive fusion.
-# Set data_root (or adhd_data_dir) to your data path. Example:
-#   python train_kfold.py --dataset adhd --mode fusion --fusion contrastive --config configs/adhd_fusion_contrastive.yaml --n_folds 5
+# ADHD 5-fold fusion: 3D-SCTF + NeuroGraph, contrastive. For train_kfold_optuna_unified_v2.py
+# Set data_root / adhd_data_dir to your paths. Example:
+#   python train_kfold_optuna_unified_v2.py --dataset adhd --mode fusion --fusion contrastive \
+#     --config configs/adhd_fusion_3dsctf_contrastive.yaml --n_trials 30 --log_dir logs_adhd_contrastive
 
 seed: 42
+device: cuda
 data_root: ./data
 adhd_data_dir: ./data/adhd
 n_rois: 116
 roi_matrices_file: roi_matrices_775.npy
-batch_size: 16
+batch_size: 10
 image_shape: [96, 96, 96]
+
+optuna_batch_size_choices: [10, 12, 14, 16, 18, 20, 22, 24, 26, 28, 30]
 
 use_image_branch: true
 image_encoder: 3dsctf
@@ -30,6 +34,6 @@ contrastive_weight: 0.1
 
 num_classes: 2
 dropout: 0.3
-epochs: 50
+epochs: 100
 lr: 0.0001
-weight_decay: 0.01
+weight_decay: 0.05

@@ -1,10 +1,7 @@
 """
-ROI encoder using BrainNet-EndtoEnd ResidualGNNs (GCN-based).
+ROI encoder using NeuroGraph (BrainNet-EndtoEnd) ResidualGNNs (GCN-based). See https://github.com/Anwar-Said/NeuroGraph
 
-设计目标：
-- 完全删掉 NeuroGraph 依赖，只保留 BrainNet 这一条 ROI GNN 分支；
-- 和原来的 NeuroGraphROIEncoder 一样，对外暴露一个 (B, n_rois, n_rois) -> (B, feat_dim) 的编码器，
-  方便在 roi_only 和 fusion 模式下统一使用。
+Provides a single encoder mapping (B, n_rois, n_rois) -> (B, feat_dim) for use in roi_only and fusion modes.
 """
 
 from __future__ import annotations
@@ -19,7 +16,7 @@ from torch_geometric.data import Data, Batch
 
 
 # ---------------------------------------------------------------------------
-# ResidualGNNs: inlined in this repo (models/brainnet_residual_gnn.py)
+# ResidualGNNs: inlined in this repo (NeuroGraph-compatible; models/brainnet_residual_gnn.py)
 # ---------------------------------------------------------------------------
 from .brainnet_residual_gnn import ResidualGNNs
 
@@ -53,7 +50,7 @@ def _correlation_matrix_to_pyg_data(
     C = C.to(device).float()
     if C.dim() == 3:
         C = C.squeeze(0)
-    x = C  # BrainNet 风格：节点特征使用整行相关向量
+    x = C  # Node features: full correlation row per node (NeuroGraph convention)
     triu_idx = torch.triu_indices(n_rois, n_rois, offset=1, device=device)
     vals = C[triu_idx[0], triu_idx[1]]
     k = max(1, int(vals.numel() * edge_top_p))
@@ -69,7 +66,7 @@ def _batch_roi_to_pyg(
     edge_top_p: float = 0.05,
     device: Optional[torch.device] = None,
 ) -> Batch:
-    """(B, n_rois, n_rois) 或 (B, n_rois) -> PyG Batch。3D 视为预计算好的相关矩阵。"""
+    """(B, n_rois, n_rois) or (B, n_rois) -> PyG Batch; 3D input is treated as precomputed correlation matrix."""
     device = device or roi_batch.device
     B = roi_batch.size(0)
     graphs = []
@@ -78,7 +75,7 @@ def _batch_roi_to_pyg(
             d = _correlation_matrix_to_pyg_data(roi_batch[i], n_rois, edge_top_p, device)
             graphs.append(d)
     else:
-        # 若输入是 (B, n_rois) 向量，则构造 C = v v^T
+        # If input is (B, n_rois) vector, form C = v v^T
         for i in range(B):
             roi_vec = roi_batch[i].to(device).float().unsqueeze(0)
             C = roi_vec.T @ roi_vec
@@ -90,9 +87,9 @@ def _batch_roi_to_pyg(
 
 class BrainNetROIEncoder(nn.Module):
     """
-    Wrapper around BrainNet-EndtoEnd ResidualGNNs.
-    - 输入: (B, n_rois, n_rois) Pearson 相关矩阵（或 (B, n_rois) 向量，会内部转为 C）。
-    - 输出: (B, feat_dim) 图级表示，用于 roi_only 或 fusion。
+    Wrapper around NeuroGraph (BrainNet-EndtoEnd) ResidualGNNs.
+    Input: (B, n_rois, n_rois) Pearson correlation matrix, or (B, n_rois) vector (converted to C internally).
+    Output: (B, feat_dim) graph-level representation for roi_only or fusion.
     """
 
     def __init__(
@@ -138,7 +135,6 @@ class BrainNetROIEncoder(nn.Module):
         args = Args()
         dummy_dataset = DummyDataset(n_rois)
 
-        # 直接复用 BrainNet-EndtoEnd 的 ResidualGNNs 结构
         self.gnn = ResidualGNNs(
             args,
             dummy_dataset,
@@ -148,10 +144,10 @@ class BrainNetROIEncoder(nn.Module):
             gnn_cls,
         )
 
-        # 与旧 NeuroGraph 包装器类似：hook 住 MLP 最后一层的输入，作为 pre-logit 表示
+        # Capture MLP penultimate layer input as pre-logit representation (as in original NeuroGraph wrapper)
         triu_len = (n_rois * (n_rois + 1)) // 2
         self.gnn.bn = nn.BatchNorm1d(triu_len)
-        # 调整 mlp 的第一层输入维度：上三角特征 + 每层 hidden 的聚合
+        # MLP first layer: triu features + aggregated hidden from each GNN layer
         self.gnn.mlp[0] = nn.Linear(triu_len + hidden_channels * num_layers, hidden_mlp)
         self._pre_logit_dim = hidden_mlp // 2
         self.proj = nn.Sequential(
@@ -168,7 +164,7 @@ class BrainNetROIEncoder(nn.Module):
         if x.dim() == 1:
             x = x.unsqueeze(0)
         device = x.device
-        # BatchNorm1d in BrainNet GNN requires batch_size > 1 in TRAINING mode.
+        # BatchNorm1d in NeuroGraph GNN requires batch_size > 1 in TRAINING mode.
         # In eval mode, running stats are used so batch_size=1 is fine.
         # Duplicate single-graph batches for training; also handle eval with bn workaround.
         single_graph = x.size(0) == 1
@@ -181,7 +177,7 @@ class BrainNetROIEncoder(nn.Module):
         _ = self.gnn(batch)
         handle.remove()
         if self._captured is None:
-            raise RuntimeError("BrainNet ROI encoder: pre-logit tensor not captured")
+            raise RuntimeError("NeuroGraph ROI encoder: pre-logit tensor not captured")
         out = self.proj(self._captured)
         if single_graph:
             out = out[:1]

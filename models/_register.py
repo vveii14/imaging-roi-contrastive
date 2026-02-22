@@ -24,7 +24,7 @@ registry.IMAGE_ENCODERS["3dsctf"] = ImageEncoder3DSCTF
 # ROI encoders: name = mode for ROIEncoder(n_rois, feat_dim, mode=name, ...)
 for _mode in ("connectivity", "timeseries_1d", "transformer", "roi_vector"):
     registry.ROI_ENCODERS[_mode] = ROIEncoder
-# BrainNet-style GNN encoder for ROI matrices / vectors
+# NeuroGraph-style GNN encoder for ROI matrices / vectors (config key: brainnet)
 registry.ROI_ENCODERS["brainnet"] = BrainNetROIEncoder
 # Chen et al. 2019-style DNN on single-atlas connectivity (flatten upper tri -> FC)
 registry.ROI_ENCODERS["chen2019"] = Chen2019ROIEncoder

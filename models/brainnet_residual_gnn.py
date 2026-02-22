@@ -1,5 +1,5 @@
 """
-ResidualGNNs from BrainNet (inlined for standalone release).
+ResidualGNNs from NeuroGraph (inlined for standalone release). https://github.com/Anwar-Said/NeuroGraph
 Original: BrainNet_EndtoEnd-main/model.py
 """
 import torch

@@ -1,0 +1,38 @@
+# ADNI 5-fold image-only (ViT3D, 128^3 FDG-PET)
+# Run:
+# CUDA_VISIBLE_DEVICES=2 python train_kfold_optuna_unified.py \
+#   --dataset adni --mode image_only \
+#   --config configs/adni_image_only_vit3d.yaml --n_trials 30
+
+seed: 42
+device: cuda
+data_root: ./data
+adni_data_dir: ./data/adni_fdg_pet
+adni_image_dir: ./data/adni_fdg_pet/adni_image_128_crop_pad_rot180
+
+n_rois: 90
+batch_size: 4
+image_shape: [128, 128, 128]
+
+use_image_branch: true
+image_encoder: vit3d
+image_feat_dim: 256
+image_encoder_kwargs:
+  img_size: [128, 128, 128]
+  patch_size: 16
+  embed_dim: 768
+  depth: 12
+  n_heads: 12
+  mlp_ratio: 4.0
+  pretrained_checkpoint: null  # set path to .pth for ViT3D, see README
+  checkpoint_key: net
+
+use_roi_branch: false
+roi_encoder: roi_vector
+roi_feat_dim: 256
+fusion: concat
+num_classes: 3
+dropout: 0.3
+epochs: 100
+lr: 0.0001
+weight_decay: 0.05

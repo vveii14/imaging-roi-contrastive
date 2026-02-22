@@ -1,0 +1,27 @@
+# ADHD 5-fold ROI-only: Chen et al. 2019-style DNN (single atlas, DOI 10.1148/ryai.2019190012)
+# Run: CUDA_VISIBLE_DEVICES=0 python train_kfold.py --dataset adhd --mode roi_only \
+#   --config configs/adhd_roi_only_chen2019.yaml --n_folds 5
+
+seed: 42
+device: cuda
+data_root: ./data
+adhd_data_dir: ./data/adhd
+n_rois: 116
+roi_matrices_file: roi_matrices_775.npy
+batch_size: 16
+image_shape: [96, 96, 96]
+
+use_image_branch: false
+use_roi_branch: true
+image_encoder: conv3d
+image_feat_dim: 256
+roi_encoder: chen2019
+roi_feat_dim: 256
+roi_encoder_kwargs:
+  hidden: 512
+fusion: concat
+num_classes: 2
+dropout: 0.5
+epochs: 100
+lr: 0.0001
+weight_decay: 0.0005

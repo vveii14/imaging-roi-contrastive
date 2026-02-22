@@ -113,12 +113,13 @@ def load_config(path: str) -> dict:
     return cfg
 
 
-def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image_shape, dataset_name="brain_structure", ckpt_path=None):
+def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image_shape, dataset_name="brain_structure", ckpt_path=None, test_idx=None):
     use_image = cfg["use_image_branch"]
     use_roi = cfg["use_roi_branch"]
     log_fn(f"[Fold {fold}] Step: loading data (dataset={dataset_name}, path={data_path})")
     if dataset_name == "adhd":
-        roi_matrices_file = cfg.get("roi_matrices_file")  # e.g. roi_matrices_775.npy for 116×116 Pearson
+        use_test_set_only = cfg.get("adhd_use_test_set_only", False)
+        roi_matrices_file = "test_roi_matrices_775.npy" if use_test_set_only else cfg.get("roi_matrices_file")
         train_ds = ADHDDataset(
             data_dir=data_path,
             use_image=use_image,
@@ -126,6 +127,7 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
             n_rois=cfg["n_rois"],
             indices=train_idx,
             roi_matrices_file=roi_matrices_file,
+            use_test_set_only=use_test_set_only,
         )
         val_ds = ADHDDataset(
             data_dir=data_path,
@@ -134,7 +136,19 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
             n_rois=cfg["n_rois"],
             indices=val_idx,
             roi_matrices_file=roi_matrices_file,
+            use_test_set_only=use_test_set_only,
         )
+        test_ds = None
+        if test_idx is not None:
+            test_ds = ADHDDataset(
+                data_dir=data_path,
+                use_image=use_image,
+                use_roi=use_roi,
+                n_rois=cfg["n_rois"],
+                indices=test_idx,
+                roi_matrices_file=roi_matrices_file,
+                use_test_set_only=use_test_set_only,
+            )
     elif dataset_name == "adni":
         adni_image_dir = cfg.get("adni_image_dir")
         use_roi_matrix = cfg.get("roi_encoder") in ("brainnet", "chen2019")
@@ -156,6 +170,7 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
             image_dir=adni_image_dir,
             roi_matrices=use_roi_matrix,
         )
+        test_ds = None
     else:
         train_ds = BrainStructureDataset(
             cache_dir=data_path,
@@ -173,8 +188,10 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
             target_shape=tuple(image_shape),
             indices=val_idx,
         )
+        test_ds = None
     n_train, n_val = len(train_ds), len(val_ds)
-    log_fn(f"[Fold {fold}] Data loaded: train n={n_train}, val (held-out) n={n_val}")
+    n_test = len(test_ds) if test_ds is not None else 0
+    log_fn(f"[Fold {fold}] Data loaded: train n={n_train}, val n={n_val}" + (f", test n={n_test}" if n_test else ""))
 
     # Compute per-fold class weights to handle class imbalance (e.g. ADNI: CN=304, MCI=573, AD=144)
     train_labels_np = np.array([train_ds[i]["label"] for i in range(len(train_ds))])
@@ -206,7 +223,7 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
     log_fn(f"[Fold {fold}] Step: building model (image_enc={cfg.get('image_encoder')}, roi_enc={cfg.get('roi_encoder')}, fusion={cfg.get('fusion')})")
     if cfg.get("roi_encoder") == "brainnet":
         roi_input = "precomputed roi_matrices" if cfg.get("roi_matrices_file") else "roi vectors (C computed in encoder)"
-        log_fn(f"[Fold {fold}] BrainNet ROI encoder: n_rois={cfg['n_rois']}, input={roi_input}")
+        log_fn(f"[Fold {fold}] NeuroGraph ROI encoder: n_rois={cfg['n_rois']}, input={roi_input}")
     image_encoder_kwargs = dict(cfg.get("image_encoder_kwargs") or {})
     if "img_size" not in image_encoder_kwargs and image_shape is not None:
         image_encoder_kwargs["img_size"] = tuple(image_shape)
@@ -317,7 +334,7 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
             break
 
     # ---------- Test metrics on held-out fold (with best model) ----------
-    log_fn(f"[Fold {fold}] Step: evaluating test metrics on held-out set (best model)")
+    log_fn(f"[Fold {fold}] Step: evaluating on val set (best model)")
     if best_state is not None:
         model.load_state_dict(best_state)
     model.eval()
@@ -336,19 +353,47 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
             all_labels.append(labels.cpu().numpy())
     all_logits = np.concatenate(all_logits, axis=0)
     all_labels = np.concatenate(all_labels, axis=0)
-    # Numerically stable softmax (avoids overflow with large logits)
     all_logits_shifted = all_logits - all_logits.max(axis=1, keepdims=True)
     y_prob = np.exp(all_logits_shifted) / np.exp(all_logits_shifted).sum(axis=1, keepdims=True)
     y_pred = np.argmax(all_logits, axis=1)
     num_classes = cfg["num_classes"]
     metrics = compute_test_metrics(all_labels, y_pred, y_prob, num_classes)
-    log_fn(f"[Fold {fold}] Test (held-out) metrics:")
+    log_fn(f"[Fold {fold}] Val metrics:")
     log_fn(f"  Accuracy (%)     = {metrics['accuracy']:.2f}")
     log_fn(f"  AUC (%)         = {metrics['auc']:.2f}")
     log_fn(f"  Sensitivity (%) = {metrics['sensitivity']:.2f}")
     log_fn(f"  Specificity (%) = {metrics['specificity']:.2f}")
     log_fn(f"  F1-score (%)    = {metrics['f1']:.2f}")
-    log_fn(f"[Fold {fold}] Step: done. best_val_auc={best_val_auc:.4f} (best AUC on held-out fold during training)")
+    log_fn(f"[Fold {fold}] Step: done. best_val_auc={best_val_auc:.4f} (best AUC on val during training)")
+
+    # Optional: evaluate on fixed test set (15/5/5 split)
+    if test_ds is not None and len(test_ds) > 0:
+        test_loader = DataLoader(test_ds, batch_size=cfg["batch_size"], shuffle=False, num_workers=0, collate_fn=collate, drop_last=False)
+        all_logits_t, all_labels_t = [], []
+        with torch.no_grad():
+            for batch in test_loader:
+                image = batch.get("image")
+                roi_data = batch.get("roi_data")
+                labels = batch["label"].to(device)
+                if image is not None:
+                    image = image.to(device)
+                if roi_data is not None:
+                    roi_data = roi_data.to(device)
+                logits = model(image=image, roi_data=roi_data)
+                all_logits_t.append(logits.cpu().numpy())
+                all_labels_t.append(labels.cpu().numpy())
+        all_logits_t = np.concatenate(all_logits_t, axis=0)
+        all_labels_t = np.concatenate(all_labels_t, axis=0)
+        all_logits_t_shifted = all_logits_t - all_logits_t.max(axis=1, keepdims=True)
+        y_prob_t = np.exp(all_logits_t_shifted) / np.exp(all_logits_t_shifted).sum(axis=1, keepdims=True)
+        y_pred_t = np.argmax(all_logits_t, axis=1)
+        test_metrics = compute_test_metrics(all_labels_t, y_pred_t, y_prob_t, num_classes)
+        log_fn(f"[Fold {fold}] Test set (fixed 5 samples) metrics:")
+        log_fn(f"  Accuracy (%)     = {test_metrics['accuracy']:.2f}")
+        log_fn(f"  AUC (%)         = {test_metrics['auc']:.2f}")
+        log_fn(f"  Sensitivity (%) = {test_metrics['sensitivity']:.2f}")
+        log_fn(f"  Specificity (%) = {test_metrics['specificity']:.2f}")
+        log_fn(f"  F1-score (%)    = {test_metrics['f1']:.2f}")
     return metrics
 
 
