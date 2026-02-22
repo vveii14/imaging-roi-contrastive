@@ -192,17 +192,6 @@ imaging-roi-contrastive/
     └── data/ (layout as per [NeuroGraph](https://github.com/Anwar-Said/NeuroGraph); put your data here or link)
 ```
 
-## Citation
-
-If you use this code, please cite our MICCAI 2026 paper:
-
-```bibtex
-@inproceedings{imaging-roi-contrastive-miccai26,
-  title     = {Imaging–ROI Contribution Analysis: A Pluggable Contrastive Framework for Brain Imaging Classification},
-  booktitle = {MICCAI},
-  year      = {2026},
-}
-```
 
 ## License
 
