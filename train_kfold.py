@@ -23,7 +23,6 @@ from sklearn.utils.class_weight import compute_class_weight
 
 from data.brain_structure import BrainStructureDataset
 from data.adhd import ADHDDataset, get_adhd_meta
-from data.adni import ADNIFDGPETDataset, get_adni_meta
 from models import ImageROIFusionModel
 
 
@@ -149,28 +148,6 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
                 roi_matrices_file=roi_matrices_file,
                 use_test_set_only=use_test_set_only,
             )
-    elif dataset_name == "adni":
-        adni_image_dir = cfg.get("adni_image_dir")
-        use_roi_matrix = cfg.get("roi_encoder") in ("brainnet", "chen2019")
-        train_ds = ADNIFDGPETDataset(
-            data_dir=data_path,
-            use_image=use_image,
-            use_roi=use_roi,
-            n_rois=cfg["n_rois"],
-            indices=train_idx,
-            image_dir=adni_image_dir,
-            roi_matrices=use_roi_matrix,
-        )
-        val_ds = ADNIFDGPETDataset(
-            data_dir=data_path,
-            use_image=use_image,
-            use_roi=use_roi,
-            n_rois=cfg["n_rois"],
-            indices=val_idx,
-            image_dir=adni_image_dir,
-            roi_matrices=use_roi_matrix,
-        )
-        test_ds = None
     else:
         train_ds = BrainStructureDataset(
             cache_dir=data_path,
@@ -193,14 +170,14 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
     n_test = len(test_ds) if test_ds is not None else 0
     log_fn(f"[Fold {fold}] Data loaded: train n={n_train}, val n={n_val}" + (f", test n={n_test}" if n_test else ""))
 
-    # Compute per-fold class weights to handle class imbalance (e.g. ADNI: CN=304, MCI=573, AD=144)
+    # Compute per-fold class weights to handle class imbalance
     train_labels_np = np.array([train_ds[i]["label"] for i in range(len(train_ds))])
     _classes = np.arange(cfg["num_classes"])
     _cw = compute_class_weight("balanced", classes=_classes, y=train_labels_np)
     class_weight_tensor = torch.tensor(_cw, dtype=torch.float32)
     log_fn(f"[Fold {fold}] Class weights (balanced): {dict(zip(_classes.tolist(), [round(float(w), 3) for w in _cw]))}")
 
-    # drop_last=True to avoid batch_size=1 causing BatchNorm to fail (e.g. ADNI fusion with ROI branch)
+    # drop_last=True to avoid batch_size=1 causing BatchNorm to fail
     train_loader = DataLoader(
         train_ds,
         batch_size=cfg["batch_size"],
@@ -400,7 +377,7 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/brain_structure.yaml")
-    parser.add_argument("--dataset", type=str, default="brain_structure", choices=["brain_structure", "adhd", "adni"])
+    parser.add_argument("--dataset", type=str, default="brain_structure", choices=["brain_structure", "adhd"])
     parser.add_argument("--mode", type=str, choices=["image_only", "roi_only", "fusion"], default="image_only")
     parser.add_argument("--fusion", type=str, choices=["concat", "contrastive", "cross_attention"], default=None, help="Fusion method (only used when --mode fusion)")
     parser.add_argument("--n_folds", type=int, default=5)
@@ -450,19 +427,6 @@ def main():
     if args.dataset == "adhd":
         data_path = cfg.get("adhd_data_dir", str(Path(cfg["data_root"]) / "adhd"))
         indices, labels = get_adhd_meta(data_path)
-        n = len(indices)
-        labels = np.asarray(labels)
-        labels_for_skf = labels
-    elif args.dataset == "adni":
-        data_path = cfg.get("adni_data_dir", str(Path(cfg["data_root"]) / "adni_fdg_pet"))
-        adni_image_dir = cfg.get("adni_image_dir", str(Path(data_path) / "adni_image_128_crop_pad_rot180"))
-        cfg["adni_image_dir"] = adni_image_dir
-        require_image = bool(cfg.get("use_image_branch", False))
-        indices, labels = get_adni_meta(
-            data_path,
-            require_image=require_image,
-            image_dir=adni_image_dir,
-        )
         n = len(indices)
         labels = np.asarray(labels)
         labels_for_skf = labels

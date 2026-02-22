@@ -32,18 +32,13 @@ from typing import Dict, Any, Optional
 
 import numpy as np
 import optuna
-import pandas as pd
 import torch
 import torch.nn.functional as F
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix
-from torch_geometric.data import Data
-from torch_geometric.loader import DataLoader
 from tqdm import tqdm
 
 from train_kfold import load_config, run_one_fold  # type: ignore
 from data.adhd import get_adhd_meta  # type: ignore
-from data.adni import get_adni_meta  # type: ignore
 
 # Store per-trial metrics (mean ± std) so we can save to JSON after each trial
 _trial_metrics_store: Dict[int, Dict[str, Dict[str, float]]] = {}
@@ -180,18 +175,6 @@ def _prepare_base_cfg_and_data(args) -> tuple[Dict[str, Any], np.ndarray, np.nda
         indices, labels = get_adhd_meta(data_path, use_test_set_only=use_test_set_only)
         indices = np.array(indices)
         labels = np.asarray(labels)
-    elif args.dataset == "adni":
-        data_path = cfg.get("adni_data_dir", str(Path(cfg["data_root"]) / "adni_fdg_pet"))
-        adni_image_dir = cfg.get("adni_image_dir", str(Path(data_path) / "adni_image_128_crop_pad_rot180"))
-        cfg["adni_image_dir"] = adni_image_dir
-        require_image = args.mode in ("image_only", "fusion")
-        indices, labels = get_adni_meta(
-            data_path,
-            require_image=require_image,
-            image_dir=adni_image_dir,
-        )
-        indices = np.array(indices)
-        labels = np.asarray(labels)
     else:
         # brain_structure: pool train+validation+test, then (if balance_classes) all AD + same number CN
         data_path = cfg.get(
@@ -260,11 +243,9 @@ def _apply_common_hparams(trial: optuna.Trial, cfg: Dict[str, Any], args) -> Non
         cfg["epochs"] = trial.suggest_int("epochs", 30, 100, step=10)
         return
     img_enc = cfg.get("image_encoder", "")
-    if args.mode in ("image_only", "fusion") and (
-        args.dataset == "adni" or img_enc == "3dsctf"
-    ):
+    if args.mode in ("image_only", "fusion") and img_enc == "3dsctf":
         cfg["batch_size"] = trial.suggest_categorical("batch_size", [2, 4])
-        # ADNI 128^3 images need more epochs to converge
+        # 3D-SCTF with 128^3 images may need more epochs to converge
         cfg["epochs"] = trial.suggest_int("epochs", 50, 200, step=25)
     else:
         cfg["batch_size"] = trial.suggest_categorical("batch_size", [8, 16, 32])
@@ -292,34 +273,34 @@ def _apply_roi_brainnet_hparams(trial: optuna.Trial, cfg: Dict[str, Any]) -> Non
 
 
 def _apply_image_hparams(trial: optuna.Trial, cfg: Dict[str, Any]) -> None:
-    """image 分支超参：特征维度 + 按 encoder 类型调大量结构/正则参数。"""
+    """Image branch hyperparameters: feature dim and encoder-specific structure/regularization."""
     cfg["image_feat_dim"] = trial.suggest_categorical("image_feat_dim", [128, 256])
     enc = cfg.get("image_encoder", "")
     kw = dict(cfg.get("image_encoder_kwargs") or {})
 
     if enc == "vit3d":
-        # ViT3D：有预训练时只调正则/轻量，无预训练时调满结构
+        # ViT3D: with pretrained only tune regularization; without pretrained tune full structure
         has_pretrained = bool(kw.get("pretrained_checkpoint", ""))
         kw["drop_path_rate"] = trial.suggest_float("img_drop_path_rate", 0.0, 0.3)
         kw["qkv_bias"] = trial.suggest_categorical("img_qkv_bias", [True, False])
         if not has_pretrained:
             kw["patch_size"] = trial.suggest_categorical("img_patch_size", [8, 16, 32])
             kw["embed_dim"] = trial.suggest_categorical("img_embed_dim", [384, 768])
-            kw["depth"] = trial.suggest_int("img_depth", 6, 12, step=3)  # 6, 9, 12
+            kw["depth"] = trial.suggest_int("img_depth", 6, 12, step=3)
             kw["n_heads"] = trial.suggest_categorical("img_n_heads", [4, 6, 8, 12])
             kw["mlp_ratio"] = trial.suggest_float("img_mlp_ratio", 2.0, 4.0)
         cfg["image_encoder_kwargs"] = kw
     elif enc == "rae_vit_ad":
-        # RAE-ViT：embed_dim / num_heads（4,8 保证整除 384/512/768）/ 输入分辨率
+        # RAE-ViT: embed_dim / num_heads (4,8 divide 384/512/768) / input resolution
         kw["embed_dim"] = trial.suggest_categorical("img_embed_dim", [384, 512, 768])
         kw["num_heads"] = trial.suggest_categorical("img_num_heads", [4, 8])
         kw["img_size"] = trial.suggest_categorical("img_size", [96, 128])
         cfg["image_encoder_kwargs"] = kw
     elif enc == "3dsctf":
-        # 3DSCTF：patch / 维度 / 深度 / 注意力头（4,8 保证整除 96/128/192）/ MLP 比例 / 正则
+        # 3DSCTF: patch / dim / depth / num_heads (4,8 divide 96/128/192) / MLP ratio / regularization
         kw["patch_size"] = trial.suggest_categorical("img_patch_size", [16, 32])
         kw["embed_dim"] = trial.suggest_categorical("img_embed_dim", [96, 128, 192])
-        kw["depth"] = trial.suggest_int("img_depth", 4, 8, step=2)  # 4, 6, 8
+        kw["depth"] = trial.suggest_int("img_depth", 4, 8, step=2)
         kw["num_heads"] = trial.suggest_categorical("img_num_heads", [4, 8])
         kw["mlp_ratio"] = trial.suggest_float("img_mlp_ratio", 2.0, 4.0)
         kw["qkv_bias"] = trial.suggest_categorical("img_qkv_bias", [True, False])
@@ -330,8 +311,8 @@ def _apply_image_hparams(trial: optuna.Trial, cfg: Dict[str, Any]) -> None:
 
 
 def _apply_fusion_hparams(trial: optuna.Trial, cfg: Dict[str, Any]) -> None:
-    """fusion 相关超参搜索。
-    如果 cfg 中已经固定 fusion（来自命令行或配置），则不再在 trial 里重选类型。
+    """Fusion-related hyperparameter search.
+    If fusion is already fixed in cfg (from CLI or config), do not resample type in trial.
     """
     fusion = cfg.get("fusion")
     if fusion is None:
@@ -443,226 +424,6 @@ def _run_brainnet_roi_only_native(trial: optuna.Trial, args) -> float:
     return objective_value
 
 
-def _adni_load_graphs(
-    folds_dir: Path,
-    graph_dir: Path,
-    iids: list,
-    edge_percent_to_keep: float,
-) -> list:
-    """Load ADNI graphs from 5_folds_adni fold_assignments and NeuroGraph .pkl; return list of Data (y=0/1/2)."""
-    csv_path = folds_dir / "5_folds" / "fold_assignments.csv"
-    fold_df = pd.read_csv(csv_path, dtype={"IID": str})
-    iid_to_label = dict(zip(fold_df["IID"].astype(str), fold_df["Diagnosis"].astype(int)))
-    dataset, atlas, method = "ADNI", "AAL90", "pearson_correlation"
-    out = []
-    for iid in iids:
-        fname = f"dataset-{dataset}_sub-{iid}_task-rest_desc-staticgraphconstructionedge_atlas-{atlas}_contrmethd-{method}.pkl"
-        p = graph_dir / fname
-        if not p.exists() or iid not in iid_to_label:
-            continue
-        batch = torch.load(p, map_location="cpu", weights_only=False)
-        data = batch[0]
-        edge_attr = data.x.numpy()
-        edge_attr = np.nan_to_num(edge_attr, nan=0.0, posinf=0.0, neginf=0.0)
-        np.fill_diagonal(edge_attr, 0)
-        threshold = np.percentile(edge_attr, 100 * (1 - edge_percent_to_keep))
-        edge_attr[edge_attr <= threshold] = 0
-        edge_index = np.vstack(np.nonzero(edge_attr))
-        filtered_attr = torch.tensor(edge_attr[edge_index[0], edge_index[1]], dtype=torch.float)
-        y = torch.tensor(iid_to_label[iid], dtype=torch.long)
-        out.append(
-            Data(
-                x=torch.tensor(edge_attr, dtype=torch.float),
-                edge_index=torch.tensor(edge_index, dtype=torch.long),
-                edge_attr=filtered_attr,
-                y=y,
-            )
-        )
-    return out
-
-
-def _adni_test_3class(model, device, loader, num_classes: int = 3) -> Dict[str, float]:
-    """Evaluate 3-class metrics; used only within this unified pipeline."""
-    model.eval()
-    all_preds, all_probs, all_labels = [], [], []
-    with torch.no_grad():
-        for data in loader:
-            data = data.to(device)
-            out = model(data)
-            probs = F.softmax(out, dim=1)
-            preds = out.argmax(dim=1)
-            all_preds.append(preds.cpu().numpy())
-            all_probs.append(probs.cpu().numpy())
-            all_labels.append(data.y.cpu().numpy())
-    all_preds = np.concatenate(all_preds)
-    all_probs = np.concatenate(all_probs)
-    all_labels = np.concatenate(all_labels)
-    acc = accuracy_score(all_labels, all_preds)
-    auroc = roc_auc_score(all_labels, all_probs, multi_class="ovr", average="macro")
-    f1 = f1_score(all_labels, all_preds, average="macro")
-    cm = confusion_matrix(all_labels, all_preds)
-    sens_list = [
-        cm[c, c] / (cm[c, :].sum() or 1) for c in range(num_classes)
-    ]
-    spec_list = []
-    for c in range(num_classes):
-        tn = cm.sum() - cm[c, :].sum() - cm[:, c].sum() + cm[c, c]
-        fp = cm[:, c].sum() - cm[c, c]
-        spec_list.append(tn / ((tn + fp) or 1))
-    return {
-        "accuracy": acc,
-        "auroc": auroc,
-        "sensitivity": float(np.mean(sens_list)),
-        "specificity": float(np.mean(spec_list)),
-        "f1_score": f1,
-    }
-
-
-def _adni_train_one_epoch(model, device, loader, optimizer, criterion):
-    """Single-epoch training; aligned with NeuroGraph train.py."""
-    model.train()
-    total = 0
-    for data in loader:
-        data = data.to(device)
-        optimizer.zero_grad()
-        out = model(data)
-        loss = criterion(out, data.y)
-        loss.backward()
-        optimizer.step()
-        total += loss.item() * data.num_graphs
-    return total / len(loader.dataset)
-
-
-def _run_brainnet_roi_only_native_adni(trial: optuna.Trial, args) -> float:
-    """
-    ADNI FDG-PET ROI-only: implemented in this unified pipeline without modifying NeuroGraph.
-    Reads 5_folds_adni/5_folds/fold_assignments.csv and NeuroGraph .pkl graphs;
-    runs 5-fold training and 3-class evaluation with ResidualGNNs. Objective: mean test AUC (macro).
-    """
-    if not _BRAINNET_ROOT.is_dir():
-        raise FileNotFoundError(f"NeuroGraph-compatible BrainNet_EndtoEnd-main not found at {_BRAINNET_ROOT}")
-    folds_dir_adni = _PROJECT_ROOT / "5_folds_adni"
-    graph_dir = _BRAINNET_ROOT / "data" / "graphconstructionedge" / "static" / "ADNI" / "AAL90" / "pearson_correlation"
-    if not (folds_dir_adni / "5_folds" / "fold_assignments.csv").exists():
-        raise FileNotFoundError(
-            "ADNI fold_assignments not found. Run: python scripts/prepare_brainnet_from_adni.py (or NeuroGraph data prep)"
-        )
-
-    lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
-    weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
-    batch_size = trial.suggest_categorical("batch_size", [4, 8])
-    epochs = trial.suggest_int("epochs", 30, 300, step=10)
-    hidden = trial.suggest_categorical("hidden", [16, 32, 64])
-    hidden_mlp = trial.suggest_categorical("hidden_mlp", [32, 64, 128])
-    num_layers = trial.suggest_int("num_layers", 2, 5)
-    model_name = trial.suggest_categorical(
-        "model", ["GCNConv", "GINConv", "SAGEConv", "GATConv", "GraphConv"]
-    )
-    edge_percent_to_keep = trial.suggest_float("edge_percent_to_keep", 0.02, 0.2)
-
-    print(
-        f"[Trial {trial.number}] dataset=adni mode=roi_only (3-class, in-unified) "
-        f"lr={lr:.2e} wd={weight_decay:.2e} bs={batch_size} epochs={epochs} "
-        f"hidden={hidden} hidden_mlp={hidden_mlp} model={model_name}",
-        flush=True,
-    )
-
-    torch.manual_seed(args.seed)
-    np.random.seed(args.seed)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    num_classes = 3
-
-    fold_combinations = [
-        {"train_folds": [1, 2, 3], "val_fold": 4, "test_fold": 5},
-        {"train_folds": [2, 3, 4], "val_fold": 5, "test_fold": 1},
-        {"train_folds": [3, 4, 5], "val_fold": 1, "test_fold": 2},
-        {"train_folds": [4, 5, 1], "val_fold": 2, "test_fold": 3},
-        {"train_folds": [5, 1, 2], "val_fold": 3, "test_fold": 4},
-    ]
-    fold_df = pd.read_csv(folds_dir_adni / "5_folds" / "fold_assignments.csv", dtype={"IID": str})
-
-    sys.path.insert(0, str(_BRAINNET_ROOT))
-    try:
-        from torch_geometric.nn import GCNConv, GINConv, SAGEConv, GATConv, GraphConv  # noqa: F401
-        from model import ResidualGNNs  # type: ignore
-        _gnn_map = {"GCNConv": GCNConv, "GINConv": GINConv, "SAGEConv": SAGEConv, "GATConv": GATConv, "GraphConv": GraphConv}
-        gnn_cls = _gnn_map[model_name]
-    finally:
-        sys.path.pop(0)
-
-    _nc = num_classes  # avoid NameError in class body
-    class _Args:
-        model = model_name
-        num_classes = _nc
-
-    fold_metrics = []
-    for fold_idx, fold_info in enumerate(fold_combinations):
-        train_iids = fold_df[fold_df["fold"].isin(fold_info["train_folds"])]["IID"].tolist()
-        val_iids = fold_df[fold_df["fold"] == fold_info["val_fold"]]["IID"].tolist()
-        test_iids = fold_df[fold_df["fold"] == fold_info["test_fold"]]["IID"].tolist()
-
-        train_data = _adni_load_graphs(folds_dir_adni, graph_dir, train_iids, edge_percent_to_keep)
-        val_data = _adni_load_graphs(folds_dir_adni, graph_dir, val_iids, edge_percent_to_keep)
-        test_data = _adni_load_graphs(folds_dir_adni, graph_dir, test_iids, edge_percent_to_keep)
-        if not train_data or not val_data or not test_data:
-            continue
-
-        train_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=True)
-        val_loader = DataLoader(val_data, batch_size=batch_size, shuffle=False)
-        test_loader = DataLoader(test_data, batch_size=batch_size, shuffle=False)
-
-        bn_args = _Args()
-        model = ResidualGNNs(bn_args, train_data, hidden, hidden_mlp, num_layers, gnn_cls).to(device)
-        optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
-        criterion = torch.nn.CrossEntropyLoss()
-
-        best_val_auroc = -1.0
-        best_state = None
-        patience_counter = 0
-        for epoch in range(epochs):
-            _adni_train_one_epoch(model, device, train_loader, optimizer, criterion)
-            val_m = _adni_test_3class(model, device, val_loader, num_classes)
-            if val_m["auroc"] > best_val_auroc:
-                best_val_auroc = val_m["auroc"]
-                best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
-                patience_counter = 0
-            else:
-                patience_counter += 1
-                if patience_counter >= 60:
-                    break
-        if best_state is not None:
-            model.load_state_dict(best_state)
-        test_m = _adni_test_3class(model, device, test_loader, num_classes)
-        fold_metrics.append(test_m)
-
-    if not fold_metrics:
-        raise RuntimeError("No ADNI folds completed.")
-    avg = {k: float(np.mean([m[k] for m in fold_metrics])) for k in fold_metrics[0]}
-    # ddof=1 for unbiased std estimate across k folds
-    std = {k: float(np.std([m[k] for m in fold_metrics], ddof=1)) for k in fold_metrics[0]}
-    acc, auc = avg["accuracy"] * 100, avg["auroc"] * 100
-    sens = avg["sensitivity"] * 100
-    spec = avg["specificity"] * 100
-    f1 = avg["f1_score"] * 100
-    s_acc = std["accuracy"] * 100
-    s_auc = std["auroc"] * 100
-    s_sens = std["sensitivity"] * 100
-    s_spec = std["specificity"] * 100
-    s_f1 = std["f1_score"] * 100
-    print(
-        f"[Trial {trial.number}] Acc {acc:.2f}±{s_acc:.2f}%  AUC {auc:.2f}±{s_auc:.2f}%  "
-        f"Sens {sens:.2f}±{s_sens:.2f}%  Spec {spec:.2f}±{s_spec:.2f}%  F1 {f1:.2f}±{s_f1:.2f}%",
-        flush=True,
-    )
-    _trial_metrics_store[trial.number] = {
-        "means": {"accuracy": acc, "auc": auc, "sensitivity": sens, "specificity": spec, "f1": f1},
-        "stds": {"accuracy": s_acc, "auc": s_auc, "sensitivity": s_sens, "specificity": s_spec, "f1": s_f1},
-    }
-    objective_value = float(avg["auroc"])
-    print(f"[Trial {trial.number}] -> objective (AUC) = {objective_value:.4f}", flush=True)
-    return objective_value
-
-
 def objective(trial: optuna.Trial, args) -> float:
     """
     Unified Optuna objective: build trial-level config from dataset/mode/roi_backend,
@@ -678,9 +439,6 @@ def objective(trial: optuna.Trial, args) -> float:
         if (_PROJECT_ROOT / "5_folds").exists() and _BRAINNET_ROOT.is_dir():
             return _run_brainnet_roi_only_native(trial, args)
         # Fall through to unified path (adhd_fold*_775.npy + roi_matrices_775.npy)
-    if args.dataset == "adni" and args.mode == "roi_only" and roi_enc == "brainnet":
-        return _run_brainnet_roi_only_native_adni(trial, args)
-
     cfg_base, indices, labels, data_path, image_shape = _prepare_base_cfg_and_data(args)
 
     cfg = copy.deepcopy(cfg_base)
@@ -825,7 +583,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default="configs/brain_structure.yaml")
-    parser.add_argument("--dataset", type=str, default="brain_structure", choices=["brain_structure", "adhd", "adni"])
+    parser.add_argument("--dataset", type=str, default="adhd", choices=["brain_structure", "adhd"])
     parser.add_argument("--mode", type=str, choices=["image_only", "roi_only", "fusion"], default="image_only")
     parser.add_argument("--fusion", type=str, choices=["concat", "contrastive", "cross_attention"], default=None)
     parser.add_argument("--roi_backend", type=str, default="brainnet", help="ROI backend (config key: brainnet for NeuroGraph ResidualGNNs)")
@@ -842,7 +600,7 @@ def main():
     parser.add_argument("--epochs", type=int, default=None, help="Override config epochs (e.g. 2 for smoke).")
     parser.add_argument("--adhd_use_test_set_only", action="store_true", help="Use only adhd_test_775.npy + test_roi_matrices_775.npy (25 samples); batch_size forced to 2 to avoid OOM.")
     # V2: Auto-create storage if not specified
-    parser.add_argument("--storage", type=str, default=None, help="Optuna DB storage URL, e.g. sqlite:///optuna_adni.db. If not set, auto-creates sqlite DB in log_dir.")
+    parser.add_argument("--storage", type=str, default=None, help="Optuna DB storage URL (e.g. sqlite:///optuna.db). If not set, auto-creates sqlite DB in log_dir.")
     args = parser.parse_args()
 
     # V2: Setup log directory

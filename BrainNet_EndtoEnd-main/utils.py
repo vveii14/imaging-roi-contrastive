@@ -255,10 +255,8 @@ def load_data_from_args(args, fold_info=None):
         labels_file = os.path.join(args.dataset_dir, 'y', args.dataset, 'y.csv')
         labels_df = pd.read_csv(labels_file, dtype={'IID': str})
 
-    if args.dataset == 'ADNI':
-        label0, label1 = 0, 4
-    elif args.dataset == 'HCP' or args.dataset == 'ADHD':
-        label0, label1 = 0, 1
+    # Binary labels 0/1 (this repo: ADHD only)
+    label0, label1 = 0, 1
 
     labels_df = labels_df[labels_df['Diagnosis'].isin([label0, label1])].reset_index(drop=True)
     # and change the labels to 0 and 1
@@ -267,8 +265,8 @@ def load_data_from_args(args, fold_info=None):
 
     dataset = []
     all_edge_counts = []
-    corrupted_iids = []  # ← 记录坏图 ID
-    missing_iids = []    # ← 记录缺失图的 ID
+    corrupted_iids = []  # track corrupted graph IIDs
+    missing_iids = []    # track missing graph IIDs
 
     graph_dir = os.path.join(args.dataset_dir, 'graphconstructionedge', args.graph_type, args.dataset, args.atlas, args.edge_dir_prefix)
     # First pass: gather edge count info
@@ -282,8 +280,8 @@ def load_data_from_args(args, fold_info=None):
             continue
 
         try:
-            # torch>=2.6 默认为 weights_only=True，会阻止反序列化 PyG Batch；
-            # 这里明确设置 weights_only=False，因为这些图文件是我们自己生成的。
+            # torch>=2.6 defaults to weights_only=True, which blocks PyG Batch deserialization;
+            # set weights_only=False explicitly since these graph files are self-generated.
             data_batch = torch.load(graph_path, map_location='cpu', weights_only=False)
             data = data_batch[0]
             edge_attr = data.x.numpy()
@@ -372,7 +370,7 @@ def load_data_from_args(args, fold_info=None):
 
         dataset.append(data)
 
-    # 最后打印缺失和异常 IID
+    # Print missing and corrupted IIDs at the end
     if missing_iids:
         print(f"\nSkipped {len(missing_iids)} IIDs due to not found these file.")
     if corrupted_iids:
@@ -487,11 +485,8 @@ def load_data_for_iids(args, iids):
                 
             y = torch.tensor(label_row['Diagnosis'].iloc[0], dtype=torch.long)
             
-            # Convert label if needed
-            if args.dataset == 'ADNI':
-                y = torch.tensor(0 if y == 0 else 1, dtype=torch.long)
-            elif args.dataset == 'HCP' or args.dataset == 'ADHD':
-                y = torch.tensor(0 if y == 0 else 1, dtype=torch.long)
+            # Binary label 0/1 (ADHD, HCP)
+            y = torch.tensor(0 if y == 0 else 1, dtype=torch.long)
             
             data = Data(
                 x=torch.tensor(edge_attr, dtype=torch.float),
@@ -535,7 +530,7 @@ def load_data_for_iids(args, iids):
 def log_experiment_result(args, avg_metrics, std_metrics, fold_metrics, filename_prefix="log"):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 构建结构化日志 dict
+    # Build structured log dict
     log = {
         "timestamp": timestamp,
         "tune_name": args.tune_name,
@@ -573,11 +568,11 @@ def log_experiment_result(args, avg_metrics, std_metrics, fold_metrics, filename
         if avg_epochs_run is not None:
             log["avg_epochs_run"] = avg_epochs_run
 
-    # 创建 logs 目录
+    # Create logs directory
     log_dir = "./logs"
     os.makedirs(log_dir, exist_ok=True)
 
-    # 保存为 jsonl 文件，每一行一个实验
+    # Append one experiment per line to jsonl file
     log_path = os.path.join(log_dir, f"{filename_prefix}_{args.dataset}.jsonl")
     with open(log_path, "a") as f:
         f.write(json.dumps(log) + "\n")

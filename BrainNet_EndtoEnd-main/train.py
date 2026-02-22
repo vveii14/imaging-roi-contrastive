@@ -15,7 +15,7 @@ import warnings
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-warnings.filterwarnings("ignore")  # 屏蔽所有警告
+warnings.filterwarnings("ignore")  # suppress all warnings
 
 from utils import * 
 from model import *
@@ -159,7 +159,7 @@ def train_and_evaluate_fold(args, train_loader, val_loader, test_loader, fold_id
     test_metrics = test(model, args, test_loader)
 
 
-    # 不想要画曲线可以先注释这里
+    # Comment out below to skip saving/plotting curves
     _save_training_history(
         model_prefix=model_prefix,
         epochs=list(range(1, len(train_loss_history) + 1)),
@@ -175,7 +175,7 @@ def train_and_evaluate_fold(args, train_loader, val_loader, test_loader, fold_id
 
 
 def _save_training_history(model_prefix, epochs, train_losses, val_aurocs):
-    """保存并绘制训练损失与验证AUROC曲线"""
+    """Save and plot training loss and validation AUROC curves."""
     length = min(len(epochs), len(train_losses), len(val_aurocs))
     if length == 0:
         return
@@ -402,8 +402,8 @@ def bench_from_args(args: Args, verbose = False, use_predefined_folds=False):
     if method in if_method_has_constructed:
         print(f"Graph construction for {args.dataset} with {args.edge_dir_prefix} already completed.")
     else:
-        # 对于我们 miccai26/ADHD 的数据，图是事先从 roi_matrices_775.npy 转好的，
-        # 因此这里如果找不到时序数据目录，就直接跳过构图，复用已有图文件。
+        # For our ADHD data, graphs are pre-built from roi_matrices_775.npy;
+        # if timeseries dir is missing, skip graph construction and reuse existing graph files.
         try:
             construct_graphs_for_all_subjects(
                 args.dataset,
@@ -480,7 +480,7 @@ def bench_from_args(args: Args, verbose = False, use_predefined_folds=False):
                     print("epoch: {}, loss: {}, \ntrain_metrics:{}, \nval_metrics:{}, \ntest_metrics:{}".format(
                         epoch, np.round(loss.item(), 6), train_metrics, val_metrics, test_metrics))
                 
-                # 检查是否是最好的验证 AUROC
+                # Check if this is the best validation AUROC
                 if val_metrics['auroc'] > best_val_auroc + min_delta:
                     best_val_auroc = val_metrics['auroc']
                     patience_counter = 0
@@ -500,7 +500,7 @@ def bench_from_args(args: Args, verbose = False, use_predefined_folds=False):
         model.eval()
         test_metrics = test(model, args, test_loader)
         fold_metrics.append(test_metrics)
-        #我加的释放内存
+        # Free GPU memory
         del model
         torch.cuda.empty_cache()
         if (verbose):
@@ -527,18 +527,18 @@ def bench_from_args(args: Args, verbose = False, use_predefined_folds=False):
     return avg_metrics, std_metrics
 
 
-# Configuration: Set to True to use predefined folds (5 fold cross我预定义的), False for random folds (随机划分的5fold-cross)
-USE_PREDEFINED_FOLDS = True  # Change this to False if you want random folds
+# Configuration: True = predefined 5-fold cross-validation, False = random 5-fold split
+USE_PREDEFINED_FOLDS = True  # Change to False for random folds
 
-BASE_DIR = os.path.abspath(os.path.dirname(__file__)) #获取当前文件的绝对路径
-PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, "..")) #BASE_DIR的上一层目录
+BASE_DIR = os.path.abspath(os.path.dirname(__file__))  # absolute path of this file
+PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))  # parent of BASE_DIR
 
 argsDictTune_a = {
-    # choose dataset form: ADNI(BOLD), HCP(HDCORR), BOLD+CORR
+    # dataset: ADHD (this repo); NeuroGraph also supports HCP etc.
     'dataset' : ["ADHD"],
     'dataset_dir' : os.path.join(BASE_DIR, "data"),
-    # 注意：这里使用工程内的 ROI 时序数据，而不是硬编码的外部绝对路径
-    # 期望目录结构为：data/fMRIROItimeseries/ADHD/{atlas}/dataset-ADHD_sub-*_desc-fMRIROItimeseries_atlas-{atlas}.pkl
+    # Use in-project ROI timeseries path (not hardcoded external path).
+    # Expected layout: data/fMRIROItimeseries/ADHD/{atlas}/dataset-ADHD_sub-*_desc-fMRIROItimeseries_atlas-{atlas}.pkl
     'timeseries_dir': os.path.join(BASE_DIR, "data", "fMRIROItimeseries"),
     'folds_dir': PROJECT_ROOT,
     # choose from: GCNConv, GINConv, SGConv, GeneralConv, GATConv
@@ -560,11 +560,11 @@ argsDictTune_a = {
         #'patels_conditional_dependence_measures_kappa',
         #'patels_conditional_dependence_measures_tau',
     ],
-    # 我们自有 ADHD 数据只对应 AAL116（116×116 ROI Pearson 矩阵）
+    # Our ADHD data uses AAL116 (116x116 ROI Pearson matrix) only
     'atlas' : ["AAL116"],
     'model' : "GCNConv" ,
     'num_classes' : 2,
-    # 为了快速验证全流程，这里先跑一个固定配置；后续你想大规模搜索再把这些改回 list。
+    # Fixed config for quick pipeline verification; change back to lists for large-scale search.
     'weight_decay' : 5e-4,
     'batch_size': 32,
     'hidden_mlp' : 64,
@@ -602,7 +602,7 @@ args_list_a = [a for a in args_list_a if a.tune_name not in existing_result_keys
 gpu_count = torch.cuda.device_count()
 available_gpu_ids = list(range(gpu_count)) if gpu_count > 0 else []
 
-# ✅ 给每个任务分配一个轮询的 GPU 和 tqdm rank
+# Assign a round-robin GPU and tqdm rank per task
 for i, args in enumerate(args_list_a):
     if len(available_gpu_ids) > 0:
         args.gpu_id = available_gpu_ids[i % len(available_gpu_ids)]
@@ -612,7 +612,7 @@ for i, args in enumerate(args_list_a):
         args.device = "cpu"
     args.rank = i
 
-# ✅ 单个任务执行函数
+# Single-task execution function
 def run_single_experiment(args: Args, use_predefined_folds=False):
     if torch.cuda.is_available() and (args.gpu_id is not None):
         torch.cuda.set_device(args.gpu_id)
@@ -636,11 +636,11 @@ def run_single_experiment(args: Args, use_predefined_folds=False):
     print(f"✅ {args.tune_name} done on {args.device}")
     return met
 
-# ✅ 控制要开多少任务
-max_parallel_tasks = max(1, gpu_count)   # 你最多可以设置为 cpu_count()
+# Max number of parallel tasks (can set up to cpu_count() if desired)
+max_parallel_tasks = max(1, gpu_count)
 
 
-# ✅ 启动任务池
+# Start task pool
 if __name__ == "__main__":
     try:
         set_start_method("spawn")
