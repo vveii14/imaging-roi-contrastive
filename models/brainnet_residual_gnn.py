@@ -1,6 +1,6 @@
 """
 ResidualGNNs from NeuroGraph (inlined for standalone release). https://github.com/Anwar-Said/NeuroGraph
-Original: BrainNet_EndtoEnd-main/model.py
+Original: NeuroGraph model.py
 """
 import torch
 from torch import nn

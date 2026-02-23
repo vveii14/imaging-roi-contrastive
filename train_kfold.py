@@ -198,7 +198,7 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
     log_fn(f"[Fold {fold}] DataLoader: train_batches={n_batches_train}, val_batches={len(val_loader)}")
 
     log_fn(f"[Fold {fold}] Step: building model (image_enc={cfg.get('image_encoder')}, roi_enc={cfg.get('roi_encoder')}, fusion={cfg.get('fusion')})")
-    if cfg.get("roi_encoder") == "brainnet":
+    if cfg.get("roi_encoder") == "neurograph":
         roi_input = "precomputed roi_matrices" if cfg.get("roi_matrices_file") else "roi vectors (C computed in encoder)"
         log_fn(f"[Fold {fold}] NeuroGraph ROI encoder: n_rois={cfg['n_rois']}, input={roi_input}")
     image_encoder_kwargs = dict(cfg.get("image_encoder_kwargs") or {})
@@ -417,11 +417,11 @@ def main():
     elif args.mode == "roi_only":
         cfg["use_image_branch"] = False
         cfg["use_roi_branch"] = True
-        cfg.setdefault("roi_encoder", "brainnet")  # config may set chen2019
+        cfg.setdefault("roi_encoder", "neurograph")  # config may set chen2019
     else:
         cfg["use_image_branch"] = True
         cfg["use_roi_branch"] = True
-        cfg["roi_encoder"] = cfg.get("roi_encoder", "brainnet")
+        cfg["roi_encoder"] = cfg.get("roi_encoder", "neurograph")
 
     balanced_indices = None  # used only for brain_structure when --balance_classes
     if args.dataset == "adhd":

@@ -22,7 +22,7 @@ image_encoder_kwargs:
   mlp_ratio: 2.0
 
 use_roi_branch: true
-roi_encoder: brainnet
+roi_encoder: neurograph
 roi_feat_dim: 256
 fusion: contrastive
 contrastive_temperature: 0.07

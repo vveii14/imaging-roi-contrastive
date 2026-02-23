@@ -143,11 +143,11 @@ Set `data_root` and `adhd_data_dir` inside the YAML.
 
 For **adhd roi_only** using the NeuroGraph-native pipeline (predefined folds and [NeuroGraph](https://github.com/Anwar-Said/NeuroGraph) data layout):
 
-- Project root must contain `5_folds/` with fold assignments; `BrainNet_EndtoEnd-main/data/` (and timeseries/graph layout as in NeuroGraph) must be present. The script uses `BrainNet_EndtoEnd-main/train.py` and `utils` for this path.
+- Project root must contain `5_folds/` with fold assignments; `NeuroGraph-main/data/` (and timeseries/graph layout as in [NeuroGraph](https://github.com/Anwar-Said/NeuroGraph)) must be present. The script uses `NeuroGraph-main/train.py` and `utils` for this path.
 
 If `5_folds/` is missing, the pipeline falls back to the unified path (e.g. `adhd_fold*_775.npy` + `roi_matrices_775.npy` or test-set files when using `--adhd_use_test_set_only`).
 
-The repo includes **BrainNet_EndtoEnd-main** (NeuroGraph-compatible model, train, utils) so that the native roi_only path runs when the corresponding data and fold files are in place.
+The repo includes **NeuroGraph-main** (NeuroGraph model, train, utils) so that the native roi_only path runs when the corresponding data and fold files are in place.
 
 ## Project structure
 
@@ -170,9 +170,9 @@ imaging-roi-contrastive/
 │   └── ...
 ├── models/
 │   ├── fusion_model.py, fusion.py
-│   ├── image_encoder_3dsctf.py, roi_encoder_brainnet.py
+│   ├── image_encoder_3dsctf.py, roi_encoder_brainnet.py  # NeuroGraph ROI encoder
 │   └── ...
-└── BrainNet_EndtoEnd-main/             # NeuroGraph-compatible; for roi_only native (ADHD)
+└── NeuroGraph-main/                    # NeuroGraph; for roi_only native (ADHD)
     ├── model.py, train.py, utils.py
     └── data/ (layout as per [NeuroGraph](https://github.com/Anwar-Said/NeuroGraph); put your data here or link)
 ```

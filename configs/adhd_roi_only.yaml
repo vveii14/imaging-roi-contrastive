@@ -15,7 +15,7 @@ image_encoder: conv3d
 image_feat_dim: 256
 
 use_roi_branch: true
-roi_encoder: brainnet
+roi_encoder: neurograph
 roi_feat_dim: 256
 fusion: concat
 num_classes: 2

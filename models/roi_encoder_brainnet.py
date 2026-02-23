@@ -1,5 +1,5 @@
 """
-ROI encoder using NeuroGraph (BrainNet-EndtoEnd) ResidualGNNs (GCN-based). See https://github.com/Anwar-Said/NeuroGraph
+ROI encoder using NeuroGraph ResidualGNNs (GCN-based). See https://github.com/Anwar-Said/NeuroGraph
 
 Provides a single encoder mapping (B, n_rois, n_rois) -> (B, feat_dim) for use in roi_only and fusion modes.
 """
@@ -16,7 +16,7 @@ from torch_geometric.data import Data, Batch
 
 
 # ---------------------------------------------------------------------------
-# ResidualGNNs: inlined in this repo (NeuroGraph-compatible; models/brainnet_residual_gnn.py)
+# ResidualGNNs: inlined from NeuroGraph (models/brainnet_residual_gnn.py)
 # ---------------------------------------------------------------------------
 from .brainnet_residual_gnn import ResidualGNNs
 
@@ -85,9 +85,9 @@ def _batch_roi_to_pyg(
     return Batch.from_data_list(graphs)
 
 
-class BrainNetROIEncoder(nn.Module):
+class NeuroGraphROIEncoder(nn.Module):
     """
-    Wrapper around NeuroGraph (BrainNet-EndtoEnd) ResidualGNNs.
+    Wrapper around NeuroGraph ResidualGNNs.
     Input: (B, n_rois, n_rois) Pearson correlation matrix, or (B, n_rois) vector (converted to C internally).
     Output: (B, feat_dim) graph-level representation for roi_only or fusion.
     """

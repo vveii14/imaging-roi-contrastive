@@ -20,7 +20,7 @@ image_encoder_kwargs:
   pretrained_checkpoint: null  # set path to .pth for ViT3D, see README
 
 use_roi_branch: true
-roi_encoder: brainnet
+roi_encoder: neurograph
 roi_feat_dim: 256
 fusion: concat
 contrastive_temperature: 0.07

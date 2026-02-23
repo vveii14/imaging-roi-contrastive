@@ -9,7 +9,7 @@ from .image_encoder_vit3d import ImageEncoderViT3D
 from .image_encoder_rae_vit import ImageEncoderRAEViT
 from .image_encoder_3dsctf import ImageEncoder3DSCTF
 from .roi_encoder import ROIEncoder
-from .roi_encoder_brainnet import BrainNetROIEncoder
+from .roi_encoder_brainnet import NeuroGraphROIEncoder
 from .roi_encoder_chen2019 import Chen2019ROIEncoder
 from .fusion import ConcatFusion, ContrastiveFusion, CrossAttentionFusion
 
@@ -24,8 +24,8 @@ registry.IMAGE_ENCODERS["3dsctf"] = ImageEncoder3DSCTF
 # ROI encoders: name = mode for ROIEncoder(n_rois, feat_dim, mode=name, ...)
 for _mode in ("connectivity", "timeseries_1d", "transformer", "roi_vector"):
     registry.ROI_ENCODERS[_mode] = ROIEncoder
-# NeuroGraph-style GNN encoder for ROI matrices / vectors (config key: brainnet)
-registry.ROI_ENCODERS["brainnet"] = BrainNetROIEncoder
+# NeuroGraph GNN encoder for ROI matrices / vectors (config key: neurograph)
+registry.ROI_ENCODERS["neurograph"] = NeuroGraphROIEncoder
 # Chen et al. 2019-style DNN on single-atlas connectivity (flatten upper tri -> FC)
 registry.ROI_ENCODERS["chen2019"] = Chen2019ROIEncoder
 

@@ -48,9 +48,9 @@ _LOG_DIR: Optional[Path] = None
 _SUMMARY_CSV_PATH: Optional[Path] = None
 _TRIAL_START_TIME: Dict[int, float] = {}
 
-# NeuroGraph-compatible native path: roi_only ADHD uses BrainNet_EndtoEnd-main/train.py
+# NeuroGraph native path: roi_only ADHD uses NeuroGraph-main/train.py
 _PROJECT_ROOT = Path(__file__).resolve().parent
-_BRAINNET_ROOT = _PROJECT_ROOT / "BrainNet_EndtoEnd-main"
+_NEUROGRAPH_ROOT = _PROJECT_ROOT / "NeuroGraph-main"
 
 
 def _save_trial_json(trial_number: int, params: Dict, means: Dict, stds: Dict, args) -> None:
@@ -159,11 +159,11 @@ def _prepare_base_cfg_and_data(args) -> tuple[Dict[str, Any], np.ndarray, np.nda
     elif args.mode == "roi_only":
         cfg["use_image_branch"] = False
         cfg["use_roi_branch"] = True
-        cfg.setdefault("roi_encoder", "brainnet")  # config may set chen2019
+        cfg.setdefault("roi_encoder", "neurograph")  # config may set chen2019
     else:  # fusion
         cfg["use_image_branch"] = True
         cfg["use_roi_branch"] = True
-        cfg["roi_encoder"] = cfg.get("roi_encoder", "brainnet")
+        cfg["roi_encoder"] = cfg.get("roi_encoder", "neurograph")
         if getattr(args, "fusion", None) is not None:
             cfg["fusion"] = args.fusion
 
@@ -259,7 +259,7 @@ def _apply_roi_chen2019_hparams(trial: optuna.Trial, cfg: Dict[str, Any]) -> Non
     cfg["roi_encoder_kwargs"] = roi_kw
 
 
-def _apply_roi_brainnet_hparams(trial: optuna.Trial, cfg: Dict[str, Any]) -> None:
+def _apply_roi_neurograph_hparams(trial: optuna.Trial, cfg: Dict[str, Any]) -> None:
     """Hyperparameter search space for ROI branch with NeuroGraph ResidualGNNs."""
     roi_kw = dict(cfg.get("roi_encoder_kwargs") or {})
     roi_kw["hidden_channels"] = trial.suggest_categorical("roi_hidden_channels", [16, 32, 64])
@@ -323,14 +323,14 @@ def _apply_fusion_hparams(trial: optuna.Trial, cfg: Dict[str, Any]) -> None:
         cfg["contrastive_weight"] = trial.suggest_float("cont_weight", 0.05, 0.5)
 
 
-def _run_brainnet_roi_only_native(trial: optuna.Trial, args) -> float:
+def _run_neurograph_roi_only_native(trial: optuna.Trial, args) -> float:
     """
-    ADHD ROI-only via NeuroGraph-compatible BrainNet_EndtoEnd-main/train.py.
+    ADHD ROI-only via NeuroGraph (NeuroGraph-main/train.py).
     Uses predefined 5-fold (fold_assignments.csv), same .pkl graph loading and ResidualGNNs.
     Objective: AUC (aligned with standalone script).
     """
-    if not _BRAINNET_ROOT.is_dir():
-        raise FileNotFoundError(f"NeuroGraph-compatible BrainNet_EndtoEnd-main not found at {_BRAINNET_ROOT}")
+    if not _NEUROGRAPH_ROOT.is_dir():
+        raise FileNotFoundError(f"NeuroGraph (NeuroGraph-main) not found at {_NEUROGRAPH_ROOT}")
 
     lr = trial.suggest_float("lr", 1e-5, 1e-2, log=True)
     weight_decay = trial.suggest_float("weight_decay", 1e-6, 1e-2, log=True)
@@ -354,12 +354,12 @@ def _run_brainnet_roi_only_native(trial: optuna.Trial, args) -> float:
     )
 
     # Build NeuroGraph Args (aligned with train.py argsDictTune_a)
-    dataset_dir = str(_BRAINNET_ROOT / "data")
+    dataset_dir = str(_NEUROGRAPH_ROOT / "data")
     folds_dir = str(_PROJECT_ROOT)
     param_dict = {
         "dataset": "ADHD",
         "dataset_dir": dataset_dir,
-        "timeseries_dir": str(_BRAINNET_ROOT / "data" / "fMRIROItimeseries"),
+        "timeseries_dir": str(_NEUROGRAPH_ROOT / "data" / "fMRIROItimeseries"),
         "folds_dir": folds_dir,
         "edge_dir_prefix": "pearson_correlation",
         "atlas": "AAL116",
@@ -386,7 +386,7 @@ def _run_brainnet_roi_only_native(trial: optuna.Trial, args) -> float:
     # Import NeuroGraph-compatible module and run bench_from_args as in train.py
     prev_path = list(sys.path)
     try:
-        sys.path.insert(0, str(_BRAINNET_ROOT))
+        sys.path.insert(0, str(_NEUROGRAPH_ROOT))
         from utils import Args, fix_seed  # type: ignore
         from train import bench_from_args  # type: ignore
     finally:
@@ -433,18 +433,18 @@ def objective(trial: optuna.Trial, args) -> float:
     _TRIAL_START_TIME[trial.number] = time.time()
 
     cfg_for_encoder = load_config(args.config)
-    roi_enc = cfg_for_encoder.get("roi_encoder", "brainnet")
-    # Use NeuroGraph native path only when 5_folds/ and BrainNet data exist; else use unified (e.g. smoke with dummy adhd_fold*)
-    if args.dataset == "adhd" and args.mode == "roi_only" and roi_enc == "brainnet":
-        if (_PROJECT_ROOT / "5_folds").exists() and _BRAINNET_ROOT.is_dir():
-            return _run_brainnet_roi_only_native(trial, args)
+    roi_enc = cfg_for_encoder.get("roi_encoder", "neurograph")
+    # Use NeuroGraph native path only when 5_folds/ and NeuroGraph data exist; else use unified (e.g. smoke with dummy adhd_fold*)
+    if args.dataset == "adhd" and args.mode == "roi_only" and roi_enc == "neurograph":
+        if (_PROJECT_ROOT / "5_folds").exists() and _NEUROGRAPH_ROOT.is_dir():
+            return _run_neurograph_roi_only_native(trial, args)
         # Fall through to unified path (adhd_fold*_775.npy + roi_matrices_775.npy)
     cfg_base, indices, labels, data_path, image_shape = _prepare_base_cfg_and_data(args)
 
     cfg = copy.deepcopy(cfg_base)
     _apply_common_hparams(trial, cfg, args)
-    if cfg.get("use_roi_branch", False) and cfg.get("roi_encoder") == "brainnet":
-        _apply_roi_brainnet_hparams(trial, cfg)
+    if cfg.get("use_roi_branch", False) and cfg.get("roi_encoder") == "neurograph":
+        _apply_roi_neurograph_hparams(trial, cfg)
     elif cfg.get("use_roi_branch", False) and cfg.get("roi_encoder") == "chen2019":
         _apply_roi_chen2019_hparams(trial, cfg)
     if cfg.get("use_image_branch", False):
@@ -586,7 +586,7 @@ def main():
     parser.add_argument("--dataset", type=str, default="adhd", choices=["brain_structure", "adhd"])
     parser.add_argument("--mode", type=str, choices=["image_only", "roi_only", "fusion"], default="image_only")
     parser.add_argument("--fusion", type=str, choices=["concat", "contrastive", "cross_attention"], default=None)
-    parser.add_argument("--roi_backend", type=str, default="brainnet", help="ROI backend (config key: brainnet for NeuroGraph ResidualGNNs)")
+    parser.add_argument("--roi_backend", type=str, default="neurograph", help="ROI backend (config key: neurograph for NeuroGraph ResidualGNNs)")
     parser.add_argument("--n_folds", type=int, default=5)
     parser.add_argument("--max_folds", type=int, default=None, help="If set, run only first max_folds folds (smoke test).")
     parser.add_argument("--n_trials", type=int, default=50)
