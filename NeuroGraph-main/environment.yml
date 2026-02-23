@@ -233,4 +233,3 @@ dependencies:
       - torch-geometric==2.6.1
       - triton==3.0.0
       - xarray==2023.1.0
-prefix: /home/ruc425/miniconda3/envs/neurograph
