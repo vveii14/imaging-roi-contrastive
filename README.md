@@ -93,7 +93,7 @@ To reproduce the smoke run on your machine:
 
 1. **Clone and install**
    ```bash
-   git clone https://github.com/vveii14/imaging-roi-contrastive.git
+   git clone <ANONYMOUS_REPO_URL>
    cd imaging-roi-contrastive
    pip install -r requirements.txt
    ```
