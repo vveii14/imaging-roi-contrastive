@@ -343,7 +343,7 @@ def run_one_fold(cfg, data_path, train_idx, val_idx, fold, device, log_fn, image
     log_fn(f"  F1-score (%)    = {metrics['f1']:.2f}")
     log_fn(f"[Fold {fold}] Step: done. best_val_auc={best_val_auc:.4f} (best AUC on val during training)")
 
-    # Optional: evaluate on fixed test set (15/5/5 split)
+    # Optional: evaluate on fixed test set (6/2/2 when use_test_set_only with 10 samples)
     if test_ds is not None and len(test_ds) > 0:
         test_loader = DataLoader(test_ds, batch_size=cfg["batch_size"], shuffle=False, num_workers=0, collate_fn=collate, drop_last=False)
         all_logits_t, all_labels_t = [], []

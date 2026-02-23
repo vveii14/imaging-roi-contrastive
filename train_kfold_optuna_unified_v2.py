@@ -493,14 +493,14 @@ def objective(trial: optuna.Trial, args) -> float:
     log_fold = _create_trial_logger(trial.number)
     fold_metrics_list = []
     n_total = len(indices)
-    use_fixed_15_5_5 = args.dataset == "adhd" and cfg.get("adhd_use_test_set_only", False) and n_total == 25
+    use_fixed_test_split = args.dataset == "adhd" and cfg.get("adhd_use_test_set_only", False) and n_total == 10
 
-    if use_fixed_15_5_5:
-        train_idx = list(range(15))
-        val_idx = list(range(15, 20))
-        test_idx = list(range(20, 25))
+    if use_fixed_test_split:
+        train_idx = list(range(6))
+        val_idx = list(range(6, 8))
+        test_idx = list(range(8, 10))
         fold_splits = [(train_idx, val_idx, test_idx)]
-        log_fold(f"[Trial {trial.number}] Using fixed 15/5/5 split (15 train, 5 val, 5 test)")
+        log_fold(f"[Trial {trial.number}] Using fixed 6/2/2 split (6 train, 2 val, 2 test)")
     else:
         skf = StratifiedKFold(n_splits=args.n_folds, shuffle=True, random_state=cfg["seed"])
         fold_splits = []
@@ -514,11 +514,11 @@ def objective(trial: optuna.Trial, args) -> float:
     for fold, one_split in enumerate(fold_splits):
         train_idx, val_idx = one_split[0], one_split[1]
         test_idx = one_split[2] if len(one_split) > 2 else None
-        if args.max_folds is not None and not use_fixed_15_5_5 and (fold + 1) > args.max_folds:
+        if args.max_folds is not None and not use_fixed_test_split and (fold + 1) > args.max_folds:
             log_fold(f"[Trial {trial.number}] max_folds={args.max_folds} reached, skipping remaining folds (smoke).")
             break
         log_fold(
-            f"[Trial {trial.number}] Fold {fold+1}/{len(fold_splits) if not use_fixed_15_5_5 else 1}: "
+            f"[Trial {trial.number}] Fold {fold+1}/{len(fold_splits) if not use_fixed_test_split else 1}: "
             f"train_n={len(train_idx)} val_n={len(val_idx)}"
             + (f" test_n={len(test_idx)}" if test_idx else "")
         )
@@ -549,7 +549,7 @@ def objective(trial: optuna.Trial, args) -> float:
             f"Acc={metrics['accuracy']:.2f}%  AUC={metrics['auc']:.2f}%  "
             f"Sens={metrics['sensitivity']:.2f}%  Spec={metrics['specificity']:.2f}%  F1={metrics['f1']:.2f}%"
         )
-        if use_fixed_15_5_5:
+        if use_fixed_test_split:
             break
 
     keys = ["accuracy", "auc", "sensitivity", "specificity", "f1"]
@@ -598,7 +598,7 @@ def main():
     parser.add_argument("--save_ckpt_dir", type=str, default=None, help="If set, save best-per-fold checkpoints under this directory for each trial.")
     parser.add_argument("--save_results_dir", type=str, default=None, help="(DEPRECATED: use --log_dir) If set, save best-trial metrics (mean±std) to this dir as <study_name>_best_metrics.json.")
     parser.add_argument("--epochs", type=int, default=None, help="Override config epochs (e.g. 2 for smoke).")
-    parser.add_argument("--adhd_use_test_set_only", action="store_true", help="Use only adhd_test_775.npy + test_roi_matrices_775.npy (25 samples); batch_size forced to 2 to avoid OOM.")
+    parser.add_argument("--adhd_use_test_set_only", action="store_true", help="Use only adhd_test_775.npy + test_roi_matrices_775.npy (10 samples, 6/2/2 split); batch_size forced to 2.")
     # V2: Auto-create storage if not specified
     parser.add_argument("--storage", type=str, default=None, help="Optuna DB storage URL (e.g. sqlite:///optuna.db). If not set, auto-creates sqlite DB in log_dir.")
     args = parser.parse_args()

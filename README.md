@@ -43,12 +43,13 @@ ViT3D can load checkpoints in ViT_recipe format for transfer or fine-tuning. Wei
 
 ## Requirements
 
-- Python 3.8+
-- CUDA-capable GPU (recommended)
-
-```bash
-pip install -r requirements.txt
-```
+- **Python** 3.8+ (tested with 3.10, 3.12)
+- **CUDA**-capable GPU recommended (smoke runs in ~15–30 min on one GPU)
+- **Install:**
+  ```bash
+  pip install -r requirements.txt
+  ```
+  For strict reproducibility, use a virtual env and consider pinning versions (e.g. `torch`, `torch-geometric`, `optuna`) to match your test environment.
 
 ## Main Entry: train_kfold_optuna_unified_v2.py (full functionality)
 
@@ -84,27 +85,52 @@ Optional: `--storage sqlite:///path/to.db` to use a different DB; `--save_ckpt_d
 
 ## Smoke run
 
-A short run with minimal ADHD-style data to verify environment and scripts.
+A short run with minimal ADHD-style data to verify environment and scripts. **The repository includes a 10-sample ADHD test set** (`data/adhd/adhd_test_775.npy`, `data/adhd/test_roi_matrices_775.npy`, ~68 MB, under GitHub’s 100 MB limit) so reviewers can reproduce the smoke without generating data.
+
+### Reproducing the smoke run (for reviewers)
+
+To reproduce the smoke run on your machine:
+
+1. **Clone and install**
+   ```bash
+   git clone https://github.com/vveii14/imaging-roi-contrastive.git
+   cd imaging-roi-contrastive
+   pip install -r requirements.txt
+   ```
+
+2. **Run the full smoke (recommended: one GPU)**  
+   Default uses **GPU 1**. Edit `CUDA_VISIBLE_DEVICES` in the script to use another GPU (e.g. `0`).
+   ```bash
+   bash run_smoke_gpu1.sh
+   ```
+   This runs 6 experiments in sequence (fusion contrastive, image-only 3D-SCTF, ViT3D, RAE-ViT, roi_only NeuroGraph, roi_only Chen2019), each with 1 trial, 1 fold, 2 epochs, on the included 10-sample set (fixed 6/2/2 train/val/test). **No need to run `prepare_dummy_adhd.py`** — the test set is in the repo. If missing (e.g. partial clone), the script runs it once.
+
+3. **Check outputs**  
+   Logs and checkpoints are written under `logs_smoke_gpu1/` (see [Log locations](#log-locations) below). Approximate runtime: ~2–5 minutes per experiment on a single GPU (total ~15–30 min).
+
+**Alternative (any GPU):** `bash run_smoke.sh` — same 6 experiments, uses `CUDA_VISIBLE_DEVICES` from your environment; logs go to `logs_smoke/`.
+
+**Seed:** The pipeline uses a fixed seed (default `42`) so runs are reproducible.
+
+### Log locations
+
+| What | Where |
+|------|--------|
+| Full console output per experiment | `logs_smoke_gpu1/<name>.log` (e.g. `fusion_contrastive.log`, `roi_neurograph.log`) |
+| Summary CSV per experiment | `logs_smoke_gpu1/<name>/summary.csv` |
+| Best-trial metrics (JSON) | `logs_smoke_gpu1/<name>/best_trial_metrics.json` |
+| Per-trial details | `logs_smoke_gpu1/<name>/trial_XXX/detailed.log` |
+| Checkpoints | `logs_smoke_gpu1/<name>/checkpoints/trialXXX/fold1_best.pth` |
+
+### Single-command smoke (fusion only)
 
 ```bash
-cd /path/to/imaging-roi-contrastive
-pip install -r requirements.txt
-python scripts/prepare_dummy_adhd.py
-bash run_smoke.sh
-```
-
-Single run (fusion contrastive, 1 trial, 1 fold, 2 epochs):
-
-```bash
-python scripts/prepare_dummy_adhd.py
 python train_kfold_optuna_unified_v2.py --dataset adhd --mode fusion --fusion contrastive \
-  --config configs/adhd_fusion_3dsctf_contrastive.yaml --n_trials 1 --max_folds 1 --epochs 2 \
-  --log_dir logs_smoke --study_name smoke
+  --config configs/adhd_fusion_3dsctf_contrastive.yaml --adhd_use_test_set_only \
+  --n_trials 1 --max_folds 1 --epochs 2 --log_dir logs_smoke --study_name smoke
 ```
 
-`run_smoke.sh` runs in sequence: fusion contrastive (3D-SCTF+NeuroGraph), image-only 3D-SCTF, ViT3D, RAE-ViT, roi_only NeuroGraph, roi_only Chen2019 (each 1 trial, 1 fold, 2 epochs); logs go to `logs_smoke/`. Without `5_folds/`, roi_only NeuroGraph uses the unified data path (adhd_fold*_775.npy). RAE-ViT is memory-heavy; use a dedicated GPU or smaller batch if sharing a device.
-
-**Running all experiments (baselines + fusion) on a single GPU**: use `run_smoke_gpu1.sh` (default: GPU 1). This script uses `--adhd_use_test_set_only` (25 samples, fixed 15/5/5 split, `batch_size=2`) **only to verify that the code runs**. For real experiments, obtain the full ADHD dataset, run your own preprocessing, and do not use `--adhd_use_test_set_only`. The script runs: fusion contrastive, image-only 3D-SCTF, ViT3D, RAE-ViT, roi_only NeuroGraph, roi_only Chen2019; logs in `logs_smoke_gpu1/`. Change `CUDA_VISIBLE_DEVICES` in the script to use another GPU.
+**Note:** The 10-sample setup is for **verifying that the code runs** only. For real experiments, use the full ADHD dataset and normal 5-fold (or your own) splits without `--adhd_use_test_set_only`. RAE-ViT is memory-heavy; `batch_size=2` is used for the smoke to avoid OOM.
 
 ## Config and encoder mapping (ADHD)
 
@@ -137,7 +163,7 @@ Set `data_root` and `adhd_data_dir` inside the YAML.
 
 - **Config**: e.g. `configs/adhd_fusion_3dsctf_contrastive.yaml` or `configs/adhd_fusion_contrastive.yaml`.
 - **Data**: ROI matrices (e.g. `roi_matrices_775.npy`, 116×116) and labels under `adhd_data_dir`; optional 3D images. See `data/adhd.py` for expected layout.
-- **Test set (in repo, for quick testing only)**: We provide 25 samples in `data/adhd/adhd_test_775.npy` and `data/adhd/test_roi_matrices_775.npy` so you can run the pipeline without the full dataset. With `--adhd_use_test_set_only`, the split is **fixed 15/5/5** (15 train, 5 val, 5 test) and `batch_size` is forced to 2. **This is only for verifying that the code runs; for real experiments you must obtain the full ADHD dataset, run your own preprocessing, and use the normal data layout (e.g. 5-fold or your own splits) without `--adhd_use_test_set_only`.**
+- **Test set (in repo, for smoke only)**: We provide 10 samples in `data/adhd/adhd_test_775.npy` and `data/adhd/test_roi_matrices_775.npy` (~68 MB total, under GitHub 100 MB limit). With `--adhd_use_test_set_only`, the split is **fixed 6/2/2** (6 train, 2 val, 2 test) and `batch_size` is forced to 2. **Only for verifying that the code runs; for real experiments use the full ADHD dataset and normal 5-fold without `--adhd_use_test_set_only`.**
 
 ### ROI-only (NeuroGraph native path)
 

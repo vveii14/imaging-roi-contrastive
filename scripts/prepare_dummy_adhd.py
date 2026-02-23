@@ -2,8 +2,8 @@
 Create minimal ADHD-format data under data/adhd/ for smoke runs.
 - 5 folds: adhd_fold1_775.npy ... adhd_fold5_775.npy (each SAMPLES_PER_FOLD for train/val).
 - roi_matrices_775.npy: (N_train, 116, 116) for ROI-based encoders.
-- Test set (5 samples per fold, 25 total): adhd_test_775.npy, test_roi_matrices_775.npy.
-  Full ADHD has 155 samples per fold; we provide 5 per fold in repo for evaluation.
+- Test set (2 samples per fold, 10 total): adhd_test_775.npy, test_roi_matrices_775.npy.
+  Kept small for GitHub 100 MB file limit; for smoke/reproducibility only.
 Run from repo root: python scripts/prepare_dummy_adhd.py
 """
 
@@ -15,7 +15,7 @@ ADHD_DIR = REPO_ROOT / "data" / "adhd"
 SHAPE = (96, 96, 96)
 N_ROIS = 116
 SAMPLES_PER_FOLD = 4  # train/val per fold for smoke (2 per class)
-TEST_SAMPLES_PER_FOLD = 5  # 5 per fold in repo for test (full ADHD has 155/fold)
+TEST_SAMPLES_PER_FOLD = 2  # 2 per fold = 10 total (fits GitHub 100 MB limit)
 N_FOLDS = 5
 
 
@@ -53,7 +53,7 @@ def main():
     np.save(path, roi_mat)
     print(f"Wrote {path} shape {roi_mat.shape}")
 
-    # Test set: 5 samples per fold (25 total), committed to repo for evaluation
+    # Test set: 2 per fold = 10 total (committed to repo for smoke; under 100 MB)
     test_rows = []
     for fold in range(1, N_FOLDS + 1):
         for i in range(TEST_SAMPLES_PER_FOLD):
@@ -62,7 +62,7 @@ def main():
     test_arr = np.array(test_rows, dtype=object)
     path_test = ADHD_DIR / "adhd_test_775.npy"
     np.save(path_test, test_arr, allow_pickle=True)
-    print(f"Wrote {path_test} ({len(test_rows)} test samples, 5 per fold)")
+    print(f"Wrote {path_test} ({len(test_rows)} test samples, {TEST_SAMPLES_PER_FOLD} per fold)")
 
     test_roi = np.zeros((len(test_rows), N_ROIS, N_ROIS), dtype=np.float32)
     for i in range(len(test_rows)):
@@ -75,7 +75,7 @@ def main():
     np.save(path_test_roi, test_roi)
     print(f"Wrote {path_test_roi} shape {test_roi.shape}")
 
-    print("Done. Test set: 5 samples per fold (25 total) in adhd_test_775.npy, test_roi_matrices_775.npy.")
+    print(f"Done. Test set: {TEST_SAMPLES_PER_FOLD} per fold ({len(test_rows)} total) in adhd_test_775.npy, test_roi_matrices_775.npy.")
     print("Smoke run: python train_kfold_optuna_unified_v2.py --dataset adhd --mode fusion --fusion contrastive \\")
     print("  --config configs/adhd_fusion_3dsctf_contrastive.yaml --n_trials 1 --max_folds 1 --epochs 2 --log_dir logs_smoke")
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 # All baseline + fusion on GPU 1, 1 fold, 1 trial, 2 epochs.
-# Data: adhd_test_775.npy + test_roi_matrices_775.npy (25 samples) only; batch_size=2 to avoid OOM.
+# Data: adhd_test_775.npy + test_roi_matrices_775.npy (10 samples) only; batch_size=2.
 # Run from repo root. Ensures test set exists: python scripts/prepare_dummy_adhd.py (once).
 
 set -e
@@ -9,9 +9,9 @@ export CUDA_VISIBLE_DEVICES=1
 LOG=logs_smoke_gpu1
 mkdir -p "$LOG"
 
-# Ensure 25-sample test set exists (adhd_test_775.npy, test_roi_matrices_775.npy)
+# Ensure 10-sample test set exists (in repo; else generate via prepare_dummy_adhd.py)
 if [ ! -f "data/adhd/adhd_test_775.npy" ]; then
-  echo "Generating test set (25 samples)..."
+  echo "Generating test set (10 samples)..."
   python scripts/prepare_dummy_adhd.py
 fi
 

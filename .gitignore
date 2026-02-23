@@ -5,7 +5,12 @@ __pycache__/
 dist/
 build/
 *.log
-data/
+# Ignore data dir except committed ADHD 10-sample test set (for smoke, under 100 MB)
+data/*
+!data/adhd/
+data/adhd/*
+!data/adhd/adhd_test_775.npy
+!data/adhd/test_roi_matrices_775.npy
 *.pth
 .pytest_cache/
 .venv/
