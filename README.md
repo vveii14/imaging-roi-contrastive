@@ -2,7 +2,7 @@
 
 **MICCAI 2026**
 
-This repository provides the **full classification and tuning pipeline** for joint imaging and ROI analysis with pluggable contrastive fusion. It is set up as an **ADHD demonstration**: 5-fold cross-validation, Optuna hyperparameter search, and support for **image_only**, **roi_only**, and **fusion** (concat / contrastive / cross_attention) on ADHD data.
+This repository provides the **full classification and tuning pipeline** for joint imaging and ROI analysis with pluggable contrastive fusion. It is set up as an **ADHD demonstration**: 5-fold cross-validation, Optuna hyperparameter search, and support for **image_only**, **roi_only**, and **fusion** (concat / contrastive / cross_attention) on ADHD data （http://preprocessed-connectomes-project.org/adhd200/）.
 
 ## Framework Overview
 
